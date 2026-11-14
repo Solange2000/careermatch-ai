@@ -1,0 +1,6 @@
+.job-input-methods{display:flex;flex-wrap:wrap;gap:9px;margin:4px 0 20px}
+.job-input-methods .selected{background:#e5f3ed;border-color:#a9d8c2;color:#176247}
+.job-actions,.job-analyse-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.job-analyse-row{margin-top:8px}
+.job-actions .hint,.job-analyse-row .hint{margin:4px 0}
+@media(max-width:520px){.job-input-methods .btn,.job-actions .btn,.job-analyse-row .btn{width:100%}}

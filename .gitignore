@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!/.env.production.example
+*.pem
+*.key
+*.p12
+*.pfx
+careermatch-backup*.json
+backend/.venv/
+backend/__pycache__/
+backend/.pytest_cache/

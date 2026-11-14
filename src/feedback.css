@@ -1,0 +1,7 @@
+.toast{max-width:100%;overflow-wrap:anywhere}
+.toast.success{background:#eaf7ef;color:#237c62}
+.toast.error{background:#fff1f0;color:#b42318}
+.toast.info,.toast.loading{background:#17365d;color:#fff}
+@media(max-width:520px){.toast{width:100%}}
+.uploadbtn:focus-within{outline:2px solid #237c62;outline-offset:3px}
+@media(max-width:800px){.sidebar{visibility:hidden}.sidebar.show{visibility:visible}}
