@@ -6,6 +6,12 @@ import App from './App';
 import {db} from './db';
 import {emptyProfile,type Profile} from './types';
 
+const {extractImageMock}=vi.hoisted(()=>({extractImageMock:vi.fn()}));
+vi.mock('./job-ocr',async importOriginal=>{
+ const actual=await importOriginal<typeof import('./job-ocr')>();
+ return{...actual,extractJobTextFromImage:extractImageMock};
+});
+
 const profile:Profile={
  ...emptyProfile,
  name:'Sam Example',
@@ -20,8 +26,8 @@ const profile:Profile={
  ]
 };
 
-beforeEach(async()=>{Object.defineProperty(navigator,'onLine',{configurable:true,value:true});await db.delete();await db.open()});
-afterEach(async()=>{vi.restoreAllMocks();Object.defineProperty(navigator,'onLine',{configurable:true,value:true});await db.delete()});
+beforeEach(async()=>{extractImageMock.mockReset();Object.defineProperty(navigator,'onLine',{configurable:true,value:true});await db.delete();await db.open()});
+afterEach(async()=>{vi.restoreAllMocks();vi.unstubAllGlobals();Object.defineProperty(navigator,'onLine',{configurable:true,value:true});await db.delete()});
 
 describe('CareerMatch workflows',()=>{
  it('adds and autosaves profile experience so it is restored after remount',async()=>{
@@ -256,5 +262,84 @@ describe('CareerMatch workflows',()=>{
   });
   expect((await screen.findByRole('status')).textContent).toContain('imported and saved locally');
   expect((screen.getByLabelText('Imported job description') as HTMLTextAreaElement).value).toBe('Excel reporting and SQL analysis');
+ });
+
+ it('reads screenshots offline, lets users edit OCR data and uses it for matching and CV creation',async()=>{
+  Object.defineProperty(navigator,'onLine',{configurable:true,value:false});
+  await db.profiles.put(profile);
+  const screenshotText='IT Administrator\nJob Title: IT Administrator\nEmployer: MAZIV\nLocation: Durban North, KwaZulu-Natal\nQualifications\nDiploma in Information Technology\nResponsibilities\nSupport business systems\nExperience\nTwo years in systems support\nRequired Skills\nSQL and Excel';
+  extractImageMock.mockImplementation(async(_file:File,onProgress?:(progress:number)=>void)=>{
+   onProgress?.(72);
+   return{text:screenshotText,confidence:92,quality:'good'};
+  });
+  const originalURL=URL;
+  const localURL=Object.assign(class extends originalURL{},{
+   createObjectURL:vi.fn(()=> 'blob:job-screenshot'),
+   revokeObjectURL:vi.fn()
+  });
+  vi.stubGlobal('URL',localURL);
+  const fetchMock=vi.fn();
+  vi.stubGlobal('fetch',fetchMock);
+  const user=userEvent.setup();
+  const app=render(<App/>);
+  await user.click(await screen.findByRole('button',{name:'Quick Tailor'}));
+  await user.click(screen.getByRole('button',{name:/Upload Job Advertisement/i}));
+  const image=new File(['local pixels'],'role.png',{type:'image/png'});
+  await user.upload(screen.getByLabelText('Job advertisement file'),image);
+  await waitFor(async()=>{
+   expect((await db.jobs.toArray())[0]).toEqual(expect.objectContaining({source:'image',status:'ready',description:screenshotText,title:'IT Administrator',company:'MAZIV',location:'Durban North, KwaZulu-Natal'}));
+  });
+  expect(screen.getByRole('img',{name:'Preview of role.png'})).toBeTruthy();
+  expect(screen.getByLabelText('Target job title')).toHaveProperty('value','IT Administrator');
+  expect(screen.getByLabelText('Employer (optional)')).toHaveProperty('value','MAZIV');
+  expect(screen.getByLabelText('Job location (optional)')).toHaveProperty('value','Durban North, KwaZulu-Natal');
+  expect(extractImageMock).toHaveBeenCalledWith(image,expect.any(Function));
+  expect(screen.getByText('Recognized sections (from screenshot text)')).toBeTruthy();
+
+  await user.clear(screen.getByLabelText('Target job title'));
+  await user.type(screen.getByLabelText('Target job title'),'Senior IT Administrator');
+  fireEvent.change(screen.getByLabelText('OCR job description'),{target:{value:`${screenshotText}\nPower BI`}});
+  await waitFor(()=>expect(screen.getByRole('button',{name:/Analyse job/i}).getAttribute('disabled')).toBeNull());
+  await user.click(screen.getByRole('button',{name:/Analyse job/i}));
+  const matchCount=await screen.findByText(/\d+\/\d+ matched/);
+  const [matchedCount,candidateCount]=(matchCount.textContent||'').split('/').map(value=>Number.parseInt(value,10));
+  expect(candidateCount).toBeGreaterThanOrEqual(2);
+  expect(matchedCount).toBeGreaterThanOrEqual(2);
+  await user.click(screen.getByRole('button',{name:/Create tailored CV/i}));
+  await waitFor(async()=>{
+   expect(await db.cvs.toArray()).toEqual([expect.objectContaining({jobTitle:'Senior IT Administrator',company:'MAZIV',jobDescription:`${screenshotText}\nPower BI`})]);
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+  app.unmount();
+ });
+
+ it('keeps a failed screenshot available for retry and supports replacing it',async()=>{
+  extractImageMock
+   .mockRejectedValueOnce(new Error('No readable text was found. Try a clearer, upright screenshot with higher contrast.'))
+   .mockResolvedValueOnce({text:'Job Title: Analyst\nEmployer: Northwind',confidence:90,quality:'good'})
+   .mockResolvedValueOnce({text:'Job Title: Project Coordinator\nEmployer: Example Group',confidence:32,quality:'low'});
+  const originalURL=URL;
+  vi.stubGlobal('URL',Object.assign(class extends originalURL{},{
+   createObjectURL:vi.fn(()=> 'blob:retry-screenshot'),
+   revokeObjectURL:vi.fn()
+  }));
+  const user=userEvent.setup();
+  render(<App/>);
+  await user.click(await screen.findByRole('button',{name:'Quick Tailor'}));
+  await user.click(screen.getByRole('button',{name:/Upload Job Advertisement/i}));
+  const input=screen.getByLabelText('Job advertisement file');
+  await user.upload(input,new File(['pixels'],'blurry.png',{type:'image/png'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('No readable text was found');
+  expect(screen.getByRole('img',{name:'Preview of blurry.png'})).toBeTruthy();
+
+  await user.click(screen.getByRole('button',{name:'Retry OCR'}));
+  await waitFor(()=>expect(screen.getByLabelText('Target job title')).toHaveProperty('value','Analyst'));
+  const replacement=new File(['pixels'],'replacement.webp',{type:'image/webp'});
+  await user.upload(input,replacement);
+  await waitFor(()=>expect(screen.getByLabelText('Target job title')).toHaveProperty('value','Project Coordinator'));
+  expect(screen.getByLabelText('Employer (optional)')).toHaveProperty('value','Example Group');
+  expect(screen.getByRole('img',{name:'Preview of replacement.webp'})).toBeTruthy();
+  expect(screen.getByText('Limited-confidence OCR result. Verify the text carefully before matching or saving.')).toBeTruthy();
+  expect(extractImageMock).toHaveBeenCalledTimes(3);
  });
 });

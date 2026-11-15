@@ -33,9 +33,9 @@ The standalone FastAPI service is in [backend/](./backend/). See its [setup and 
 
 ## Offline testing
 1. Build the app and serve it with `npm.cmd run preview`.
-2. Open the app while connected, allowing the service worker to cache the assets.
+2. Open the app while connected, allowing the service worker to cache the app and local OCR assets (about 10 MB).
 3. Reload once, then disconnect the internet and reopen the app.
-4. Create a profile, paste or import a job description (PDF/DOCX/TXT), analyse it, create a CV and export PDF/DOCX. Job links can be saved offline; online extraction requires a configured backend.
+4. Create a profile, paste or import a job description (PDF/DOCX/TXT), or select a PNG/JPG/JPEG/WebP screenshot. Analyse the job, create a CV and export PDF/DOCX. Job links can be saved offline; online extraction requires a configured backend.
 
 Service workers require HTTPS or localhost. Vite dev mode is not a reliable offline PWA test. A fresh installation requires connectivity or another means of transferring the application assets.
 
@@ -43,7 +43,8 @@ Service workers require HTTPS or localhost. Vite dev mode is not a reliable offl
 - Guest-only Career Passport with education, experience, skills, projects and certifications
 - IndexedDB autosave using Dexie
 - Offline job requirement keyword matching (heuristic, not an ATS score)
-- Quick Tailor supports pasted descriptions, saved job links and local PDF/DOCX/TXT text extraction
+- Quick Tailor supports pasted descriptions, saved job links, local PDF/DOCX/TXT text extraction and on-device screenshot OCR (PNG/JPG/JPEG/WebP)
+- The PWA precaches its English OCR worker, WebAssembly core and language model; after installation, screenshot OCR works offline and does not send images to a server
 - Saved job advertisements and pending URLs are stored in IndexedDB and can be selected again later
 - Basic evidence-based CV assembly and editing
 - Per-CV selection of skills, experience and education, with refresh from the latest Career Passport
@@ -56,7 +57,7 @@ Service workers require HTTPS or localhost. Vite dev mode is not a reliable offl
 ## Important limitations
 - No real Figma file was provided; this UI implements the agreed brand/design prompt rather than a pixel-perfect Figma export.
 - No authentication, cloud sync or online AI. URL extraction is optional and uses the separately deployed secure FastAPI service; the browser never fetches third-party job pages directly.
-- Local PDF import extracts selectable text only; scanned-image PDFs need OCR and are not processed.
+- Local PDF import extracts selectable text only; scanned-image PDFs need OCR and are not processed. Screenshot OCR is English-only and may misread blurry, rotated, low-contrast or incomplete images; review and edit all extracted text and fields.
 - Offline matching recognises a curated keyword list and exact skill mentions, not full semantic equivalence.
 - The CV summary is template-based, not AI-generated; review every statement before use.
 - Exports use the selected template's accent and header alignment, but do not reproduce the preview pixel-for-pixel.
@@ -67,10 +68,10 @@ Service workers require HTTPS or localhost. Vite dev mode is not a reliable offl
 
 ## Next milestones
 1. Test and harden iOS/Android offline exports and persistent storage.
-2. Add screenshot OCR with a clear offline fallback.
+2. Test screenshot OCR and offline asset caching on actual iPhones and budget Android devices.
 3. Deploy and monitor the optional [secure URL extraction service](./backend/README.md), then add opt-in synchronisation separately.
 4. Add OpenAI-backed analysis with source evidence checks and cost controls.
 5. Expand accessibility, tests, localisation and deployment.
 
 ## Privacy
-By default this MVP makes no application API calls and includes no advertising or analytics. If `VITE_JOB_EXTRACTION_ENDPOINT` is configured, only the job URL is sent to that backend for extraction; profile data remains local unless explicitly exported. The endpoint URL is public configuration, not a credential. IndexedDB, backups, and exports are not encrypted by the app.
+By default this MVP makes no application API calls and includes no advertising or analytics. Screenshot OCR runs locally; the screenshot is not uploaded or saved with the job. If `VITE_JOB_EXTRACTION_ENDPOINT` is configured, only the job URL is sent to that backend for extraction; profile data remains local unless explicitly exported. The endpoint URL is public configuration, not a credential. IndexedDB, backups, and exports are not encrypted by the app.
