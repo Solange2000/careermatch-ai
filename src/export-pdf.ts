@@ -1,45 +1,70 @@
 import {jsPDF} from 'jspdf';
 import type {CV} from './types';
 import {sections} from './cv-content';
-import {filename,themeFor} from './export-shared';
+import {filename,pointsToMillimetres,themeFor} from './export-shared';
 
-export function exportPdf(cv:CV){
- const document=new jsPDF({unit:'mm',format:'a4'});
+export function createPdfDocument(cv:CV){
+ const pdf=new jsPDF({unit:'mm',format:'a4'});
  const margin=19;
  const width=172;
  const bottomMargin=19;
  const theme=themeFor(cv);
  let y=22;
+ const lineHeight=(size:number)=>pointsToMillimetres(size)*1.25;
+ function wrappedLines(text:string,size:number,bold:boolean){
+  pdf.setFont('helvetica',bold?'bold':'normal');
+  pdf.setFontSize(size);
+  return pdf.splitTextToSize(text||' ',width) as string[];
+ }
  function ensureSpace(height:number){
-  if(y+height>document.internal.pageSize.getHeight()-bottomMargin){
-   document.addPage();
+  if(y+height>pdf.internal.pageSize.getHeight()-bottomMargin){
+   pdf.addPage();
    y=22;
   }
  }
- function lines(text:string,size=10,bold=false,center=false,color=theme.accent){
-  document.setFont('helvetica',bold?'bold':'normal');
-  document.setFontSize(size);
-  document.setTextColor(`#${color}`);
-  const wrapped=document.splitTextToSize(text||' ',width) as string[];
-  const lineHeight=size*.48;
+ function drawLines(wrapped:string[],size:number,bold:boolean,center:boolean,color:string){
+  pdf.setFont('helvetica',bold?'bold':'normal');
+  pdf.setFontSize(size);
+  pdf.setTextColor(`#${color}`);
+  const step=lineHeight(size);
   for(const line of wrapped){
-   ensureSpace(lineHeight);
-   document.text(line,center?105:margin,y,{align:center?'center':'left'});
-   y+=lineHeight;
+   ensureSpace(step);
+   pdf.text(line,center?105:margin,y,{align:center?'center':'left'});
+   y+=step;
   }
+ }
+ function paragraph(text:string,size:number,bold:boolean,center:boolean,color:string){
+  drawLines(wrappedLines(text,size,bold),size,bold,center,color);
   y+=2;
  }
- lines(cv.profile.name||'Your Name',19,true,theme.centerHeader);
- lines([cv.profile.email,cv.profile.phone,cv.profile.location].filter(Boolean).join(' | '),9,false,theme.centerHeader,'687A8D');
+ paragraph(cv.profile.name||'Your Name',19,true,theme.centerHeader,theme.accent);
+ paragraph([cv.profile.email,cv.profile.phone,cv.profile.location].filter(Boolean).join(' | '),9,false,theme.centerHeader,'687A8D');
  y+=4;
  for(const section of sections(cv)){
-  ensureSpace(18);
-  lines(section.title,11,true,false,theme.accent);
-  document.setDrawColor(`#${theme.accent}`);
-  document.setLineWidth(.3);
-  document.line(margin,y-1,margin+width,y-1);
-  for(const line of section.lines)if(line.trim())lines(line,10,false,false,'263B52');
-  y+=2;
+  const body=section.lines.filter(line=>line.trim());
+  const titleLines=wrappedLines(section.title,11,true);
+  const firstBodyLine=wrappedLines(body[0],10,false)[0];
+  const headingHeight=titleLines.length*lineHeight(11);
+  const ruleOffset=pointsToMillimetres(11)*1.05;
+  const bodyOffset=pointsToMillimetres(10)*1.2;
+  ensureSpace(headingHeight+ruleOffset+bodyOffset+lineHeight(10));
+  drawLines(titleLines,11,true,false,theme.accent);
+  const ruleY=y+ruleOffset;
+  pdf.setDrawColor(`#${theme.accent}`);
+  pdf.setLineWidth(.3);
+  pdf.line(margin,ruleY,margin+width,ruleY);
+  y=ruleY+bodyOffset;
+  drawLines([firstBodyLine],10,false,false,'263B52');
+  for(let index=0;index<body.length;index++){
+   const wrapped=wrappedLines(body[index],10,false);
+   drawLines(wrapped.slice(index===0?1:0),10,false,false,'263B52');
+   y+=2;
+  }
+  y+=3;
  }
- document.save(`${filename(cv.title)}.pdf`);
+ return pdf;
+}
+
+export function exportPdf(cv:CV){
+ createPdfDocument(cv).save(`${filename(cv.title)}.pdf`);
 }

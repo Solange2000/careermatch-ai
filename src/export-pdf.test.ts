@@ -2,7 +2,11 @@ import {beforeEach,describe,expect,it,vi} from 'vitest';
 import {exportPdf} from './export-pdf';
 import {emptyProfile,type CV,type Profile} from './types';
 
-const output=vi.hoisted(()=>({texts:[] as {text:string;y:number}[],pages:0,saved:''}));
+const output=vi.hoisted(()=>({
+ texts:[] as {text:string;y:number;page:number}[],
+ rules:[] as {y:number;page:number}[],
+ pages:0,page:0,saved:''
+}));
 
 vi.mock('jspdf',()=>({jsPDF:class{
  internal={pageSize:{getHeight:()=>297}};
@@ -10,11 +14,11 @@ vi.mock('jspdf',()=>({jsPDF:class{
  setFontSize(){}
  setTextColor(){}
  splitTextToSize(text:string){return text.split('\n')}
- text(text:string|string[],_x:number,y:number){output.texts.push({text:Array.isArray(text)?text.join(' '):text,y})}
+ text(text:string|string[],_x:number,y:number){output.texts.push({text:Array.isArray(text)?text.join(' '):text,y,page:output.page})}
  setDrawColor(){}
  setLineWidth(){}
- line(){}
- addPage(){output.pages++;return this}
+ line(_x1:number,y:number){output.rules.push({y,page:output.page})}
+ addPage(){output.pages++;output.page++;return this}
  save(name:string){output.saved=name;return this}
 }}));
 
@@ -22,6 +26,8 @@ const profile:Profile={
  ...emptyProfile,
  name:'Sam Example',
  skills:'Excel, SQL',
+ projects:'Built an offline reporting dashboard.',
+ certifications:'Microsoft Excel Associate.',
  experiences:[
   {id:'exp-1',title:'Analyst',organisation:'Northwind',dates:'2022–2024',details:'Built reports.'},
   {id:'exp-2',title:'Volunteer',organisation:'Local group',dates:'2021',details:'Organised events.'}
@@ -40,7 +46,7 @@ const cv:CV={
 };
 
 describe('PDF export',()=>{
- beforeEach(()=>{output.texts.length=0;output.pages=0;output.saved=''});
+ beforeEach(()=>{output.texts.length=0;output.rules.length=0;output.pages=0;output.page=0;output.saved=''});
 
  it('exports selected profile content and excludes unselected or job-ad content',()=>{
   exportPdf(cv);
@@ -55,13 +61,36 @@ describe('PDF export',()=>{
  });
 
  it('keeps a section heading with its first line across a page break',()=>{
-  const longSummary=Array.from({length:46},(_,index)=>`Evidence line ${index+1}`).join('\n');
+  const longSummary=Array.from({length:75},(_,index)=>`Evidence line ${index+1}`).join('\n');
   exportPdf({...cv,summary:longSummary});
   const skillsIndex=output.texts.findIndex(call=>call.text==='SKILLS');
   expect(skillsIndex).toBeGreaterThanOrEqual(0);
-  expect(output.texts[skillsIndex].y).toBeLessThan(30);
   expect(output.texts[skillsIndex+1].text).toBe('Excel');
-  expect(output.texts[skillsIndex+1].y).toBeLessThan(40);
+  expect(output.texts[skillsIndex].page).toBe(output.texts[skillsIndex+1].page);
   expect(output.pages).toBeGreaterThan(0);
+ });
+
+ it('places each section divider below its heading and clear of the first body line',()=>{
+  exportPdf(cv);
+  expect(output.rules).toHaveLength(6);
+  for(let index=0;index<output.rules.length;index++){
+   const headingIndex=output.texts.findIndex(call=>call.text===['PROFESSIONAL SUMMARY','SKILLS','EXPERIENCE','EDUCATION','PROJECTS','CERTIFICATIONS'][index]);
+   const heading=output.texts[headingIndex];
+   const firstBody=output.texts[headingIndex+1];
+   const rule=output.rules[index];
+   expect(rule.y-heading.y).toBeGreaterThan(3.5);
+   expect(firstBody.y-rule.y).toBeGreaterThanOrEqual(4);
+   expect(rule.page).toBe(heading.page);
+   expect(rule.page).toBe(firstBody.page);
+  }
+ });
+
+ it('wraps multiline content with consistent baseline spacing',()=>{
+  exportPdf({...cv,summary:'First summary line.\nSecond summary line.'});
+  const first=output.texts.find(call=>call.text==='First summary line.');
+  const second=output.texts.find(call=>call.text==='Second summary line.');
+  if(!first||!second)throw new Error('Expected both summary lines to be exported.');
+  expect(second.y-first.y).toBeGreaterThan(4);
+  expect(second.y-first.y).toBeLessThan(5);
  });
 });
